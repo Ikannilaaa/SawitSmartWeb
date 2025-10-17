@@ -59,7 +59,7 @@ setInterval(() => {
 }, 5000);
 
 // Simulate robot movement
-let robotPosition = { id: "RB-01", lat: 1.8243, lng: 102.3442 };
+let robotPosition = { id: "SawITSmart", lat: 1.8243, lng: 102.3442 };
 
 // Fungsi simulasi gerak robot
 function moveRobot() {

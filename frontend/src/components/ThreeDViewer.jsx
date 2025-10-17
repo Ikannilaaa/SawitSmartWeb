@@ -1,153 +1,158 @@
-// src/components/ThreeDViewer.jsx
-
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
-import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader';
-import { gsap } from 'gsap';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-const ThreeDViewer = () => {
-    const mountRef = useRef(null);
+// --- helper functions ---
+function frameObject(object, camera, fitOffset = 1.2) {
+  const box = new THREE.Box3().setFromObject(object);
+  if (!isFinite(box.min.x) || !isFinite(box.max.x)) return null;
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const maxSize = Math.max(size.x, size.y, size.z) || 1;
+  const halfFov = (camera.fov * Math.PI) / 360;
+  const distance = (maxSize / (2 * Math.tan(halfFov))) * fitOffset;
+  return { center, size, distance };
+}
+function dropToGround(root) {
+  const box = new THREE.Box3().setFromObject(root);
+  if (Number.isFinite(box.min.y)) root.position.y -= box.min.y;
+}
+function fixCommonTilt(root, axis = 'x', sign = -1) {
+  const rad = sign * Math.PI / 2;
+  if (axis === 'x') root.rotateX(rad);
+  else root.rotateZ(rad);
+}
+function normalizeUp(scene) {
+  scene.up.set(0, 1, 0);
+}
+// -------------------------
 
-    useEffect(() => {
-        const currentMount = mountRef.current;
-        let scene, camera, renderer, controls, model;
+export default function ThreeDViewer({
+  height = 560,
+  modelUrl = '/3d-assets/assets/Scene_Morning.glb',
+}) {
+  const mountRef = useRef(null);
 
-        // Inisialisasi Scene
-        const init = () => {
-            // Scene
-            scene = new THREE.Scene();
+  useEffect(() => {
+    const el = mountRef.current;
+    if (!el) return;
 
-            // Renderer
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setSize(currentMount.clientWidth, currentMount.clientHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.outputEncoding = THREE.sRGBEncoding;
-            currentMount.appendChild(renderer.domElement);
+    // Renderer
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(el.clientWidth || 1, height, true);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    renderer.setClearColor(0xf3f4f6, 0);
+    el.appendChild(renderer.domElement);
 
-            // Camera
-            camera = new THREE.PerspectiveCamera(45, currentMount.clientWidth / currentMount.clientHeight, 0.1, 1000);
-            camera.position.set(0, 2, 10);
-            scene.add(camera);
+    // Scene & Camera
+    const scene = new THREE.Scene();
+    normalizeUp(scene);
+    const camera = new THREE.PerspectiveCamera(
+      70,
+      (el.clientWidth || 1) / height,
+      0.05,
+      5000
+    );
+    camera.position.set(0, 1, 0);
 
-            // Controls
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.target.set(0, 1, 0);
+    // Lighting
+    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+    sun.position.set(60, 120, -40);
+    scene.add(sun);
 
-            // Loaders
-            loadModels();
-            loadEnvironment();
-        };
+    // Controls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.enableKeys = false; // no keyboard
+    controls.enablePan = true;
+    controls.enableZoom = true;
+    controls.minDistance = 0.1;
+    controls.maxDistance = 500;
+    controls.dampingFactor = 0.05;
+    controls.rotateSpeed = 0.9;
+    controls.zoomSpeed = 0.8;
 
-        // Memuat Model 3D
-        const loadModels = () => {
-            const loader = new GLTFLoader();
-            // Perhatikan path menuju aset yang sudah dipindahkan
-            loader.load('/3d-assets/assets/Scene_Morning.glb', (gltf) => {
-                model = gltf.scene;
-                scene.add(model);
-                applyMaterials();
-                fitCameraToObject(camera, model, 1.5, controls);
-            });
-        };
+    // Placeholder
+    const placeholder = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 16, 12),
+      new THREE.MeshStandardMaterial({ color: 0x55aaff })
+    );
+    scene.add(placeholder);
 
-        // Memuat Lingkungan (Environment Map)
-        const loadEnvironment = () => {
-            const rgbeLoader = new RGBELoader();
-            // Perhatikan path menuju aset yang sudah dipindahkan
-            rgbeLoader.load('/3d-assets/HDRs/kloppenheim_02_2k.hdr', (texture) => {
-                texture.mapping = THREE.EquirectangularReflectionMapping;
-                scene.environment = texture;
-            });
-        };
-        
-        // Menerapkan Tekstur/Material
-        const applyMaterials = () => {
-             const textureLoader = new THREE.TextureLoader();
-             const grassTexture = textureLoader.load('/3d-assets/Textures/aerial_grass_rock_2k_jpg/aerial_grass_rock_diff_2k.jpg');
-             grassTexture.wrapS = THREE.RepeatWrapping;
-             grassTexture.wrapT = THREE.RepeatWrapping;
-             grassTexture.repeat.set(8, 8);
-             
-             const grassMaterial = new THREE.MeshStandardMaterial({ map: grassTexture });
+    const loader = new GLTFLoader();
+    loader.load(
+      modelUrl,
+      (res) => {
+        scene.remove(placeholder);
+        const model = res.scene;
+        model.traverse((o) => {
+          if (o.isMesh) {
+            o.castShadow = true;
+            o.receiveShadow = true;
+          }
+        });
+        fixCommonTilt(model, 'x', -1);
+        dropToGround(model);
+        scene.add(model);
 
-             if(model) {
-                 model.traverse((child) => {
-                     if (child.isMesh && child.name === 'Ground') {
-                         child.material = grassMaterial;
-                     }
-                 });
-             }
-        };
+        const fit = frameObject(model, camera, 1);
+        if (!fit) return;
 
-        // Fungsi agar kamera fokus ke objek
-        const fitCameraToObject = (camera, object, offset, controls) => {
-            offset = offset || 1.25;
-            const boundingBox = new THREE.Box3();
-            boundingBox.setFromObject(object);
+        // Kamera dalam bounding box model
+        const center = fit.center;
+        const size = fit.size;
+        // posisi kamera di tengah + sedikit ke atas
+        camera.position.copy(center.clone().add(new THREE.Vector3(0, size.y * 0.3, 0)));
+        controls.target.copy(center);
+        camera.lookAt(center);
+        controls.update();
 
-            const center = new THREE.Vector3();
-            boundingBox.getCenter(center);
+        // batasi rotasi
+        controls.minDistance = 0.1;
+        controls.maxDistance = Math.max(10, size.length() * 1.5);
+      },
+      undefined,
+      (err) => {
+        console.error('GLB error', err);
+      }
+    );
 
-            const size = new THREE.Vector3();
-            boundingBox.getSize(size);
+    // Resize
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth || 1;
+      renderer.setSize(w, height, true);
+      camera.aspect = w / height;
+      camera.updateProjectionMatrix();
+    });
+    ro.observe(el);
 
-            const maxDim = Math.max(size.x, size.y, size.z);
-            const fov = camera.fov * (Math.PI / 180);
-            let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-            cameraZ *= offset;
-            
-            gsap.to(camera.position, {
-                duration: 1,
-                x: center.x,
-                y: center.y,
-                z: center.z + cameraZ,
-                ease: 'power2.inOut',
-            });
-            
-            if (controls) {
-                 gsap.to(controls.target, {
-                    duration: 1,
-                    x: center.x,
-                    y: center.y,
-                    z: center.z,
-                    ease: 'power2.inOut',
-                });
-            }
-        };
-        
-        // Animation Loop
-        const animate = () => {
-            requestAnimationFrame(animate);
-            controls.update();
-            renderer.render(scene, camera);
-        };
+    // Loop
+    let raf;
+    const animate = () => {
+      raf = requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    animate();
 
-        // Handle Resize
-        const onResize = () => {
-            camera.aspect = currentMount.clientWidth / currentMount.clientHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(currentMount.clientWidth, currentMount.clientHeight);
-        };
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      el.removeChild(renderer.domElement);
+      renderer.dispose();
+    };
+  }, [height, modelUrl]);
 
-        window.addEventListener('resize', onResize);
-        
-        init();
-        animate();
-
-        // Cleanup function
-        return () => {
-            window.removeEventListener('resize', onResize);
-            if (currentMount && renderer.domElement) {
-                currentMount.removeChild(renderer.domElement);
-            }
-        };
-    }, []);
-
-    return <div ref={mountRef} style={{ width: '100%', height: '100%' }} />;
-};
-
-export default ThreeDViewer;
+  return (
+    <div
+      ref={mountRef}
+      className="w-full"
+      style={{ height, pointerEvents: 'auto' }}
+    />
+  );
+}
