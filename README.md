@@ -1,5 +1,16 @@
 ## Input frontend + Data typenya
 
+## Cara run di terminal lokal
+![(Butuh instalasi node.js)](https://nodejs.org/en/download)
+```
+cd backend
+node server.js
+
+(di terminal baru)
+cd frontend
+npm run dev
+```
+
 ## State Robot
 <br>
 
