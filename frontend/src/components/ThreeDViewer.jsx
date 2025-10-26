@@ -1,158 +1,171 @@
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader';
+import { gsap } from 'gsap';
 
-// --- helper functions ---
-function frameObject(object, camera, fitOffset = 1.2) {
-  const box = new THREE.Box3().setFromObject(object);
-  if (!isFinite(box.min.x) || !isFinite(box.max.x)) return null;
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const maxSize = Math.max(size.x, size.y, size.z) || 1;
-  const halfFov = (camera.fov * Math.PI) / 360;
-  const distance = (maxSize / (2 * Math.tan(halfFov))) * fitOffset;
-  return { center, size, distance };
-}
-function dropToGround(root) {
-  const box = new THREE.Box3().setFromObject(root);
-  if (Number.isFinite(box.min.y)) root.position.y -= box.min.y;
-}
-function fixCommonTilt(root, axis = 'x', sign = -1) {
-  const rad = sign * Math.PI / 2;
-  if (axis === 'x') root.rotateX(rad);
-  else root.rotateZ(rad);
-}
-function normalizeUp(scene) {
-  scene.up.set(0, 1, 0);
-}
-// -------------------------
-
-export default function ThreeDViewer({
-  height = 560,
-  modelUrl = '/3d-assets/assets/Scene_Morning.glb',
-}) {
+const ThreeDViewer = ({ robotPath = [], detectedTrees = [], activeTreeIds = [] }) => {
   const mountRef = useRef(null);
+  const robotRef = useRef();
+  const sceneRef = useRef();
+  const clockRef = useRef(new THREE.Clock());
 
+  const [treeModel, setTreeModel] = useState(null);
+  const [displayedTrees, setDisplayedTrees] = useState({});
+
+  // --- Setup Scene ---
   useEffect(() => {
-    const el = mountRef.current;
-    if (!el) return;
+    const currentMount = mountRef.current;
+    if (!currentMount) return;
 
-    // Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(el.clientWidth || 1, height, true);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
-    renderer.setClearColor(0xf3f4f6, 0);
-    el.appendChild(renderer.domElement);
-
-    // Scene & Camera
     const scene = new THREE.Scene();
-    normalizeUp(scene);
+    scene.background = new THREE.Color(0xa0d8ef);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+    scene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    dirLight.position.set(5, 10, 7.5);
+    scene.add(dirLight);
+    sceneRef.current = scene;
+
     const camera = new THREE.PerspectiveCamera(
-      70,
-      (el.clientWidth || 1) / height,
-      0.05,
-      5000
+      60,
+      currentMount.clientWidth / currentMount.clientHeight,
+      0.1,
+      1000
     );
-    camera.position.set(0, 1, 0);
+    camera.position.set(5, 5, 10);
 
-    // Lighting
-    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-    sun.position.set(60, 120, -40);
-    scene.add(sun);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(currentMount.clientWidth, currentMount.clientHeight);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    currentMount.appendChild(renderer.domElement);
 
-    // Controls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.enableKeys = false; // no keyboard
-    controls.enablePan = true;
-    controls.enableZoom = true;
-    controls.minDistance = 0.1;
-    controls.maxDistance = 500;
-    controls.dampingFactor = 0.05;
-    controls.rotateSpeed = 0.9;
-    controls.zoomSpeed = 0.8;
+    controls.target.set(0, 1, 0);
 
-    // Placeholder
-    const placeholder = new THREE.Mesh(
-      new THREE.SphereGeometry(1, 16, 12),
-      new THREE.MeshStandardMaterial({ color: 0x55aaff })
-    );
-    scene.add(placeholder);
+    // Loaders
+    const gltfLoader = new GLTFLoader();
+    const rgbeLoader = new RGBELoader();
 
-    const loader = new GLTFLoader();
-    loader.load(
-      modelUrl,
-      (res) => {
-        scene.remove(placeholder);
-        const model = res.scene;
-        model.traverse((o) => {
-          if (o.isMesh) {
-            o.castShadow = true;
-            o.receiveShadow = true;
-          }
-        });
-        fixCommonTilt(model, 'x', -1);
-        dropToGround(model);
-        scene.add(model);
-
-        const fit = frameObject(model, camera, 1);
-        if (!fit) return;
-
-        // Kamera dalam bounding box model
-        const center = fit.center;
-        const size = fit.size;
-        // posisi kamera di tengah + sedikit ke atas
-        camera.position.copy(center.clone().add(new THREE.Vector3(0, size.y * 0.3, 0)));
-        controls.target.copy(center);
-        camera.lookAt(center);
-        controls.update();
-
-        // batasi rotasi
-        controls.minDistance = 0.1;
-        controls.maxDistance = Math.max(10, size.length() * 1.5);
-      },
-      undefined,
-      (err) => {
-        console.error('GLB error', err);
-      }
-    );
-
-    // Resize
-    const ro = new ResizeObserver(() => {
-      const w = el.clientWidth || 1;
-      renderer.setSize(w, height, true);
-      camera.aspect = w / height;
-      camera.updateProjectionMatrix();
+    rgbeLoader.load('/3d-assets/HDRs/kloppenheim_02_2k.hdr', (texture) => {
+      texture.mapping = THREE.EquirectangularReflectionMapping;
+      scene.environment = texture;
     });
-    ro.observe(el);
 
-    // Loop
-    let raf;
+    gltfLoader.load('/3d-assets/assets/Scene_Morning.glb', (gltf) => {
+      gltf.scene.scale.set(0.5, 0.5, 0.5);
+      scene.add(gltf.scene);
+    });
+
+    gltfLoader.load('/3d-assets/assets/robot.glb', (gltf) => {
+      const robot = gltf.scene;
+      robot.scale.set(0.2, 0.2, 0.2);
+      scene.add(robot);
+      robotRef.current = robot;
+      if (robotPath.length > 0)
+        robot.position.set(robotPath[0].x, robotPath[0].y, robotPath[0].z);
+    });
+
+    gltfLoader.load('/3d-assets/assets/tree.glb', (gltf) => {
+      const model = gltf.scene;
+      model.scale.set(0.3, 0.3, 0.3);
+      setTreeModel(model);
+      console.log('Tree model loaded');
+    });
+
     const animate = () => {
-      raf = requestAnimationFrame(animate);
+      requestAnimationFrame(animate);
       controls.update();
       renderer.render(scene, camera);
     };
     animate();
 
-    return () => {
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-      el.removeChild(renderer.domElement);
-      renderer.dispose();
+    const handleResize = () => {
+      camera.aspect = currentMount.clientWidth / currentMount.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(currentMount.clientWidth, currentMount.clientHeight);
     };
-  }, [height, modelUrl]);
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      gsap.killTweensOf(robotRef.current?.position);
+      if (currentMount && renderer.domElement)
+        currentMount.removeChild(renderer.domElement);
+    };
+  }, [robotPath]);
+
+  // --- Animasi Robot ---
+  useEffect(() => {
+    if (!robotRef.current || robotPath.length < 2) return;
+    const robot = robotRef.current;
+    const tl = gsap.timeline();
+    robot.position.set(robotPath[0].x, robotPath[0].y, robotPath[0].z);
+    for (let i = 1; i < robotPath.length; i++) {
+      const p1 = robotPath[i - 1];
+      const p2 = robotPath[i];
+      const dist = Math.hypot(p2.x - p1.x, p2.z - p1.z);
+      const duration = dist * 0.5;
+      tl.to(robot.position, {
+        x: p2.x,
+        y: p2.y,
+        z: p2.z,
+        duration,
+        ease: 'linear',
+        onUpdate: () => robot.lookAt(p2.x, p2.y, p2.z),
+      });
+    }
+    return () => tl.kill();
+  }, [robotPath]);
+
+  useEffect(() => {
+    if (!treeModel || !sceneRef.current) return;
+    const scene = sceneRef.current;
+    const map = { ...displayedTrees };
+    let changed = false;
+
+    // Tambah yang aktif
+    detectedTrees.forEach((tree) => {
+      const id = tree.id;
+      if (!map[id] && activeTreeIds.includes(id)) {
+        const inst = treeModel.clone();
+        inst.position.set(tree.x, tree.y || 0, tree.z); // ⬅️ dunia (tetap)
+        scene.add(inst);
+        map[id] = inst;
+        changed = true;
+      }
+    });
+
+    // Hapus yang tidak aktif / menjauh
+    Object.entries(map).forEach(([id, obj]) => {
+      if (!activeTreeIds.includes(id)) {
+        scene.remove(obj);
+        obj.traverse(n => {
+          if (n.geometry) n.geometry.dispose();
+          if (n.material) n.material.dispose?.();
+        });
+        delete map[id];
+        changed = true;
+      }
+    });
+
+    if (changed) setDisplayedTrees(map);
+  }, [detectedTrees, activeTreeIds, treeModel]);
 
   return (
     <div
       ref={mountRef}
-      className="w-full"
-      style={{ height, pointerEvents: 'auto' }}
+      style={{
+        width: '100%',
+        height: '400px',
+        position: 'relative',
+        background: '#cce5ff',
+        borderRadius: '0.5rem',
+      }}
     />
   );
-}
+};
+
+export default ThreeDViewer;
