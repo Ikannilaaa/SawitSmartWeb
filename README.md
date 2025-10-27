@@ -11,6 +11,19 @@ cd frontend
 npm run dev
 ```
 
+## Ganti speed dan banyak pohon
+
+```
+// di app.jsx
+const SPEED_KMH = 10; // ganti ini (km/h)
+
+const DOT_COLS = 5;        // berapa banyak titik sepanjang baris
+const DOT_SPACING_M = 30;    // jarak antar pohon sepanjang baris
+const ROW_OFFSET_M = 40;     // jarak dari lorong ke masing-masing baris (atas & bawah)
+
+```
+
+
 ## State Robot
 <br>
 
