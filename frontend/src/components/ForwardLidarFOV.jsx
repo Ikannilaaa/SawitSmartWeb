@@ -16,10 +16,10 @@ import { destinationPoint, bearingBetween, haversineDistance, angleDelta } from 
 export default function ForwardLidarFOV({
   robot,
   objects = [],
-  fovDeg = 120,
-  maxRange = 100,
-  warnRange = 40,
-  dangerRange = 15,
+  fovDeg = 70,
+  maxRange = 25,
+  warnRange = 12,
+  dangerRange = 8,
   onDetect,
 }) {
   const half = fovDeg / 2;
@@ -78,7 +78,7 @@ export default function ForwardLidarFOV({
         <CircleMarker
           key={o.id}
           center={{ lat: o.lat, lng: o.lng }}
-          radius={6}
+          radius={7}
           pathOptions={{
             color: o.distance <= dangerRange ? '#ef4444'
                  : o.distance <= warnRange ? '#f59e0b' : '#22c55e',
